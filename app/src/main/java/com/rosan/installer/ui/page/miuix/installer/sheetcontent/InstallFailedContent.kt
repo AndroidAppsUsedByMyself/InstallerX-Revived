@@ -26,46 +26,38 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rosan.installer.R
-import com.rosan.installer.build.RsConfig
-import com.rosan.installer.build.model.entity.Manufacturer
-import com.rosan.installer.data.app.model.exception.InstallFailedBlacklistedPackageException
-import com.rosan.installer.data.app.model.exception.InstallFailedConflictingProviderException
-import com.rosan.installer.data.app.model.exception.InstallFailedDeprecatedSdkVersion
-import com.rosan.installer.data.app.model.exception.InstallFailedDuplicatePermissionException
-import com.rosan.installer.data.app.model.exception.InstallFailedHyperOSIsolationViolationException
-import com.rosan.installer.data.app.model.exception.InstallFailedMissingInstallPermissionException
-import com.rosan.installer.data.app.model.exception.InstallFailedTestOnlyException
-import com.rosan.installer.data.app.model.exception.InstallFailedUpdateIncompatibleException
-import com.rosan.installer.data.app.model.exception.InstallFailedUserRestrictedException
-import com.rosan.installer.data.app.model.exception.InstallFailedVersionDowngradeException
-import com.rosan.installer.data.app.util.InstallOption
-import com.rosan.installer.data.installer.repo.InstallerRepo
-import com.rosan.installer.data.settings.model.room.entity.ConfigEntity
+import com.rosan.installer.core.env.DeviceConfig
+import com.rosan.installer.domain.device.model.Manufacturer
+import com.rosan.installer.domain.engine.model.InstallErrorType
+import com.rosan.installer.domain.engine.model.InstallOption
+import com.rosan.installer.domain.session.repository.InstallerSessionRepository
+import com.rosan.installer.domain.settings.model.Authorizer
 import com.rosan.installer.ui.common.LocalMiPackageInstallerPresent
 import com.rosan.installer.ui.page.main.installer.InstallerViewAction
 import com.rosan.installer.ui.page.main.installer.InstallerViewModel
 import com.rosan.installer.ui.page.miuix.widgets.MiuixErrorTextBlock
 import com.rosan.installer.ui.page.miuix.widgets.MiuixNavigationItemWidget
 import com.rosan.installer.ui.page.miuix.widgets.MiuixUninstallConfirmationDialog
-import com.rosan.installer.ui.theme.LocalIsDark
+import com.rosan.installer.ui.theme.InstallerTheme
 import com.rosan.installer.ui.theme.miuixSheetCardColorDark
 import com.rosan.installer.ui.util.isGestureNavigation
+import com.rosan.installer.util.hasErrorType
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardColors
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.isDynamicColor
-import kotlin.reflect.KClass
 
 @Composable
 fun InstallFailedContent(
     appInfo: AppInfoState,
-    installer: InstallerRepo,
+    installer: InstallerSessionRepository,
     viewModel: InstallerViewModel,
     onClose: () -> Unit
 ) {
-    val isDarkMode = LocalIsDark.current
+    val isDarkMode = InstallerTheme.isDark
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -96,6 +88,10 @@ fun InstallFailedContent(
             TextButton(
                 onClick = onClose,
                 text = stringResource(R.string.close),
+                colors = ButtonDefaults.textButtonColors(
+                    color = if (isDynamicColor) MiuixTheme.colorScheme.secondaryContainer else MiuixTheme.colorScheme.secondaryVariant,
+                    textColor = if (isDynamicColor) MiuixTheme.colorScheme.onSecondaryContainer else MiuixTheme.colorScheme.onSecondaryVariant
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -107,7 +103,7 @@ private fun MiuixErrorSuggestions(
     isDarkMode: Boolean,
     error: Throwable,
     viewModel: InstallerViewModel,
-    installer: InstallerRepo
+    installer: InstallerSessionRepository
 ) {
     val context = LocalContext.current
 
@@ -116,18 +112,19 @@ private fun MiuixErrorSuggestions(
     val hasMiPackageInstaller = LocalMiPackageInstallerPresent.current
 
     data class SuggestionItem(
-        val errorClasses: List<KClass<out Throwable>>,
+        val isMatch: (Throwable) -> Boolean,
         val onClick: () -> Unit,
         @param:StringRes val labelRes: Int,
         @param:StringRes val descriptionRes: Int
     )
 
     var pendingConflictingPackage by remember { mutableStateOf<String?>(null) }
+
     val possibleSuggestions = remember(installer) {
         buildList {
             add(
                 SuggestionItem(
-                    errorClasses = listOf(InstallFailedTestOnlyException::class),
+                    isMatch = { it.hasErrorType(InstallErrorType.TEST_ONLY) },
                     onClick = {
                         viewModel.toggleInstallFlag(InstallOption.AllowTest.value, true)
                         viewModel.dispatch(InstallerViewAction.Install(true))
@@ -136,13 +133,14 @@ private fun MiuixErrorSuggestions(
                     descriptionRes = R.string.suggestion_allow_test_app_desc,
                 )
             )
-            if (installer.config.authorizer != ConfigEntity.Authorizer.None ||
-                (installer.config.authorizer == ConfigEntity.Authorizer.None &&
-                        !(RsConfig.currentManufacturer == Manufacturer.XIAOMI && hasMiPackageInstaller))
+
+            if (installer.config.authorizer != Authorizer.None ||
+                (installer.config.authorizer == Authorizer.None &&
+                        !(DeviceConfig.currentManufacturer == Manufacturer.XIAOMI && hasMiPackageInstaller))
             ) {
                 add(
                     SuggestionItem(
-                        errorClasses = listOf(InstallFailedConflictingProviderException::class),
+                        isMatch = { it.hasErrorType(InstallErrorType.CONFLICTING_PROVIDER) },
                         onClick = {
                             val conflictingPkg = Regex("used by ([\\w.]+)")
                                 .find(error.message ?: "")?.groupValues?.get(1)
@@ -156,7 +154,7 @@ private fun MiuixErrorSuggestions(
                 )
                 add(
                     SuggestionItem(
-                        errorClasses = listOf(InstallFailedDuplicatePermissionException::class),
+                        isMatch = { it.hasErrorType(InstallErrorType.DUPLICATE_PERMISSION) },
                         onClick = {
                             val conflictingPkg = Regex("already owned by ([\\w.]+)")
                                 .find(error.message ?: "")?.groupValues?.get(1)
@@ -171,10 +169,12 @@ private fun MiuixErrorSuggestions(
                 )
                 add(
                     SuggestionItem(
-                        errorClasses = listOf(
-                            InstallFailedUpdateIncompatibleException::class,
-                            InstallFailedVersionDowngradeException::class
-                        ),
+                        isMatch = {
+                            it.hasErrorType(
+                                InstallErrorType.UPDATE_INCOMPATIBLE,
+                                InstallErrorType.VERSION_DOWNGRADE
+                            )
+                        },
                         onClick = {
                             confirmKeepData = false
                             showUninstallConfirmDialogState.value = true
@@ -184,16 +184,17 @@ private fun MiuixErrorSuggestions(
                     )
                 )
             }
+
             if (
                 Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
                 !(Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
-                        (RsConfig.currentManufacturer == Manufacturer.SAMSUNG || RsConfig.currentManufacturer == Manufacturer.REALME)) &&
-                (installer.config.authorizer == ConfigEntity.Authorizer.Root || installer.config.authorizer == ConfigEntity.Authorizer.Shizuku)
+                        (DeviceConfig.currentManufacturer == Manufacturer.SAMSUNG || DeviceConfig.currentManufacturer == Manufacturer.REALME)) &&
+                (installer.config.authorizer == Authorizer.Root || installer.config.authorizer == Authorizer.Shizuku)
             ) {
                 add(
                     SuggestionItem(
-                        errorClasses = listOf(InstallFailedVersionDowngradeException::class),
+                        isMatch = { it.hasErrorType(InstallErrorType.VERSION_DOWNGRADE) },
                         onClick = {
                             confirmKeepData = true
                             showUninstallConfirmDialogState.value = true
@@ -203,12 +204,13 @@ private fun MiuixErrorSuggestions(
                     )
                 )
             }
+
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                (installer.config.authorizer == ConfigEntity.Authorizer.Root || installer.config.authorizer == ConfigEntity.Authorizer.Shizuku)
+                (installer.config.authorizer == Authorizer.Root || installer.config.authorizer == Authorizer.Shizuku)
             ) {
                 add(
                     SuggestionItem(
-                        errorClasses = listOf(InstallFailedVersionDowngradeException::class),
+                        isMatch = { it.hasErrorType(InstallErrorType.VERSION_DOWNGRADE) },
                         onClick = {
                             viewModel.toggleInstallFlag(InstallOption.AllowDowngrade.value, true)
                             viewModel.dispatch(InstallerViewAction.Install(false))
@@ -218,13 +220,14 @@ private fun MiuixErrorSuggestions(
                     )
                 )
             }
-            if (installer.config.authorizer != ConfigEntity.Authorizer.Dhizuku)
+
+            if (installer.config.authorizer != Authorizer.Dhizuku) {
                 add(
                     SuggestionItem(
-                        errorClasses = listOf(InstallFailedHyperOSIsolationViolationException::class),
+                        isMatch = { it.hasErrorType(InstallErrorType.HYPEROS_ISOLATION_VIOLATION) },
                         onClick = {
                             // Set available installer
-                            installer.config.installer = "com.android.shell"
+                            installer.config = installer.config.copy(installer = "com.android.shell")
                             // Wipe originatingUid
                             installer.config.callingFromUid = null
                             viewModel.dispatch(InstallerViewAction.Install(false))
@@ -233,22 +236,24 @@ private fun MiuixErrorSuggestions(
                         descriptionRes = R.string.suggestion_mi_isolation_desc
                     )
                 )
-            else
+            } else {
                 add(
                     SuggestionItem(
-                        errorClasses = listOf(InstallFailedHyperOSIsolationViolationException::class),
+                        isMatch = { it.hasErrorType(InstallErrorType.HYPEROS_ISOLATION_VIOLATION) },
                         onClick = {
-                            installer.config.installer = "com.android.shell"
-                            installer.config.authorizer = ConfigEntity.Authorizer.Shizuku
+                            installer.config = installer.config.copy(installer = "com.android.shell")
+                            installer.config = installer.config.copy(authorizer = Authorizer.Shizuku)
                             viewModel.dispatch(InstallerViewAction.Install(false))
                         },
                         labelRes = R.string.suggestion_shizuku_isolation,
                         descriptionRes = R.string.suggestion_shizuku_isolation_desc
                     )
                 )
+            }
+
             add(
                 SuggestionItem(
-                    errorClasses = listOf(InstallFailedUserRestrictedException::class),
+                    isMatch = { it.hasErrorType(InstallErrorType.USER_RESTRICTED) },
                     onClick = {
                         try {
                             val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
@@ -263,9 +268,10 @@ private fun MiuixErrorSuggestions(
                     descriptionRes = R.string.suggestion_user_restricted_desc
                 )
             )
+
             add(
                 SuggestionItem(
-                    errorClasses = listOf(InstallFailedDeprecatedSdkVersion::class),
+                    isMatch = { it.hasErrorType(InstallErrorType.DEPRECATED_SDK_VERSION) },
                     onClick = {
                         viewModel.toggleInstallFlag(InstallOption.BypassLowTargetSdkBlock.value, true)
                         viewModel.dispatch(InstallerViewAction.Install(false))
@@ -274,9 +280,11 @@ private fun MiuixErrorSuggestions(
                     descriptionRes = R.string.suggestion_bypass_low_target_sdk_desc
                 )
             )
+
+            // Custom internal exceptions implemented via positive error codes
             add(
                 SuggestionItem(
-                    errorClasses = listOf(InstallFailedBlacklistedPackageException::class),
+                    isMatch = { it.hasErrorType(InstallErrorType.BLACKLISTED_PACKAGE) },
                     onClick = {
                         viewModel.toggleBypassBlacklist(true)
                         viewModel.dispatch(InstallerViewAction.Install(false))
@@ -285,9 +293,10 @@ private fun MiuixErrorSuggestions(
                     descriptionRes = R.string.suggestion_bypass_blacklist_set_by_user_desc
                 )
             )
+
             add(
                 SuggestionItem(
-                    errorClasses = listOf(InstallFailedMissingInstallPermissionException::class),
+                    isMatch = { it.hasErrorType(InstallErrorType.MISSING_INSTALL_PERMISSION) },
                     onClick = { viewModel.dispatch(InstallerViewAction.Install(false)) },
                     labelRes = R.string.retry,
                     descriptionRes = R.string.suggestion_retry_install_desc
@@ -297,11 +306,7 @@ private fun MiuixErrorSuggestions(
     }
 
     val visibleSuggestions = remember(error) {
-        possibleSuggestions.filter { suggestion ->
-            suggestion.errorClasses.any { errorClass ->
-                errorClass.isInstance(error)
-            }
-        }
+        possibleSuggestions.filter { suggestion -> suggestion.isMatch(error) }
     }
 
     if (visibleSuggestions.isNotEmpty()) {

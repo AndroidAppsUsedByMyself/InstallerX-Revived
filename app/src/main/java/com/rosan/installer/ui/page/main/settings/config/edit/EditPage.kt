@@ -47,6 +47,7 @@ import com.rosan.installer.ui.page.main.widget.setting.AppBackButton
 import com.rosan.installer.ui.page.main.widget.setting.DataAllowAllRequestedPermissionsWidget
 import com.rosan.installer.ui.page.main.widget.setting.DataAllowDowngradeWidget
 import com.rosan.installer.ui.page.main.widget.setting.DataAllowTestOnlyWidget
+import com.rosan.installer.ui.page.main.widget.setting.DataApkChooseAllWidget
 import com.rosan.installer.ui.page.main.widget.setting.DataAuthorizerWidget
 import com.rosan.installer.ui.page.main.widget.setting.DataAutoDeleteWidget
 import com.rosan.installer.ui.page.main.widget.setting.DataBypassLowTargetSdkWidget
@@ -81,10 +82,6 @@ fun EditPage(
     id: Long? = null,
     viewModel: EditViewModel = koinViewModel { parametersOf(id) }
 ) {
-    LaunchedEffect(true) {
-        viewModel.dispatch(EditViewAction.Init)
-    }
-
     val showFloatingState = remember { mutableStateOf(true) }
     val showFloating by showFloatingState
     val listState = rememberLazyListState()
@@ -250,8 +247,9 @@ fun EditPage(
                 item { DataBypassLowTargetSdkWidget(viewModel = viewModel, isM3E = false) }
             item { DataAllowAllRequestedPermissionsWidget(viewModel = viewModel, isM3E = false) }
 
-            item { LabelWidget(label = stringResource(R.string.config_label_app_bundle_settings)) }
+            item { LabelWidget(label = stringResource(R.string.config_label_preferences)) }
             item { DataSplitChooseAllWidget(viewModel = viewModel, isM3E = false) }
+            item { DataApkChooseAllWidget(viewModel = viewModel, isM3E = false) }
 
             item { Spacer(Modifier.navigationBarsPadding()) }
         }

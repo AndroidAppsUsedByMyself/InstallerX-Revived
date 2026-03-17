@@ -42,15 +42,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.rosan.installer.R
-import com.rosan.installer.data.app.model.entity.AppEntity
-import com.rosan.installer.data.app.model.entity.PackageAnalysisResult
-import com.rosan.installer.data.app.model.enums.DataType
-import com.rosan.installer.data.app.model.enums.MmzSelectionMode
-import com.rosan.installer.data.app.model.enums.SessionMode
-import com.rosan.installer.data.app.util.getDisplayName
-import com.rosan.installer.data.app.util.getSplitDisplayName
-import com.rosan.installer.data.installer.model.entity.SelectInstallEntity
-import com.rosan.installer.data.installer.repo.InstallerRepo
+import com.rosan.installer.data.engine.parser.getDisplayName
+import com.rosan.installer.data.engine.parser.getSplitDisplayName
+import com.rosan.installer.domain.engine.model.AppEntity
+import com.rosan.installer.domain.engine.model.DataType
+import com.rosan.installer.domain.engine.model.MmzSelectionMode
+import com.rosan.installer.domain.engine.model.PackageAnalysisResult
+import com.rosan.installer.domain.engine.model.SessionMode
+import com.rosan.installer.domain.session.model.SelectInstallEntity
+import com.rosan.installer.domain.session.repository.InstallerSessionRepository
 import com.rosan.installer.ui.icons.AppIcons
 import com.rosan.installer.ui.page.main.installer.InstallerViewAction
 import com.rosan.installer.ui.page.main.installer.InstallerViewModel
@@ -68,7 +68,7 @@ import com.rosan.installer.ui.util.getSupportTitle
 
 @Composable
 fun installChoiceDialog(
-    installer: InstallerRepo, viewModel: InstallerViewModel
+    installer: InstallerSessionRepository, viewModel: InstallerViewModel
 ): DialogParams {
     val analysisResults = installer.analysisResults
     val sourceType = analysisResults.firstOrNull()?.appEntities?.firstOrNull()?.app?.sourceType ?: DataType.NONE
@@ -77,6 +77,7 @@ fun installChoiceDialog(
     val isModuleApk = sourceType == DataType.MIXED_MODULE_APK
     val isMixedModuleZip = sourceType == DataType.MIXED_MODULE_ZIP
     var selectionMode by remember(sourceType) { mutableStateOf(MmzSelectionMode.INITIAL_CHOICE) }
+    val apkChooseAll = installer.config.apkChooseAll
 
     val primaryButtonText = if (isMultiApk) R.string.install else R.string.next
     val primaryButtonAction = if (isMultiApk) {
@@ -123,6 +124,7 @@ fun installChoiceDialog(
                 isModuleApk = isModuleApk,
                 isMultiApk = isMultiApk,
                 isMixedModuleZip = isMixedModuleZip,
+                apkChooseAll = apkChooseAll,
                 selectionMode = selectionMode,
                 onSetSelectionMode = { selectionMode = it }
             )
@@ -146,6 +148,7 @@ private fun ChoiceContent(
     isModuleApk: Boolean = false,
     isMultiApk: Boolean,
     isMixedModuleZip: Boolean,
+    apkChooseAll: Boolean,
     selectionMode: MmzSelectionMode,
     onSetSelectionMode: (MmzSelectionMode) -> Unit
 ) {
@@ -210,6 +213,17 @@ private fun ChoiceContent(
                         title = stringResource(R.string.installer_choice_install_as_module),
                         description = stringResource(R.string.installer_module_id, moduleEntityInfo.id),
                         onClick = {
+                            analysisResults.flatMap { it.appEntities }
+                                .filter { it.app !is AppEntity.ModuleEntity && it.selected }
+                                .forEach { apkEntity ->
+                                    viewModel.dispatch(
+                                        InstallerViewAction.ToggleSelection(
+                                            packageName = apkEntity.app.packageName,
+                                            entity = apkEntity,
+                                            isMultiSelect = true
+                                        )
+                                    )
+                                }
                             viewModel.dispatch(
                                 InstallerViewAction.ToggleSelection(
                                     packageName = entity.app.packageName,
@@ -229,6 +243,19 @@ private fun ChoiceContent(
                         title = stringResource(R.string.installer_choice_install_as_app),
                         description = stringResource(R.string.installer_choice_install_as_app_desc),
                         onClick = {
+                            if (apkChooseAll) {
+                                analysisResults.flatMap { it.appEntities }
+                                    .filter { it.app !is AppEntity.ModuleEntity && !it.selected }
+                                    .forEach { entity ->
+                                        viewModel.dispatch(
+                                            InstallerViewAction.ToggleSelection(
+                                                packageName = entity.app.packageName,
+                                                entity = entity,
+                                                isMultiSelect = true
+                                            )
+                                        )
+                                    }
+                            }
                             onSetSelectionMode(MmzSelectionMode.APK_CHOICE)
                         }
                     )

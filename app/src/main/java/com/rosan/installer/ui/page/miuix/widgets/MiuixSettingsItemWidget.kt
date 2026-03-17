@@ -41,16 +41,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rosan.installer.R
-import com.rosan.installer.data.app.util.PackageManagerUtil
-import com.rosan.installer.data.settings.model.datastore.entity.NamedPackage
-import com.rosan.installer.data.settings.model.datastore.entity.SharedUid
-import com.rosan.installer.data.settings.model.room.entity.ConfigEntity
+import com.rosan.installer.data.engine.executor.PackageManagerUtil
+import com.rosan.installer.domain.settings.model.Authorizer
+import com.rosan.installer.domain.settings.model.InstallMode
+import com.rosan.installer.domain.settings.model.NamedPackage
+import com.rosan.installer.domain.settings.model.SharedUid
 import com.rosan.installer.ui.common.LocalSessionInstallSupported
 import com.rosan.installer.ui.icons.AppIcons
-import com.rosan.installer.ui.page.main.settings.preferred.PreferredViewAction
-import com.rosan.installer.ui.page.main.settings.preferred.PreferredViewModel
-import com.rosan.installer.ui.theme.m3color.ThemeMode
+import com.rosan.installer.ui.page.main.settings.preferred.subpage.uninstaller.UninstallerSettingsAction
+import com.rosan.installer.ui.page.main.settings.preferred.subpage.uninstaller.UninstallerSettingsViewModel
+import com.rosan.installer.ui.theme.material.PaletteStyle
+import com.rosan.installer.ui.theme.material.ThemeColorSpec
+import com.rosan.installer.ui.theme.material.ThemeMode
 import com.rosan.installer.ui.util.rememberCacheInfo
 import com.rosan.installer.util.hasFlag
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -59,13 +63,13 @@ import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.SpinnerEntry
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.extra.SpinnerEntry
 import top.yukonga.miuix.kmp.extra.SuperArrow
-import top.yukonga.miuix.kmp.extra.SuperDialog
 import top.yukonga.miuix.kmp.extra.SuperSpinner
+import top.yukonga.miuix.kmp.extra.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 data class AuthorizerInfo(
@@ -80,8 +84,8 @@ data class AuthorizerInfo(
 @Composable
 fun MiuixDataAuthorizerWidget(
     modifier: Modifier = Modifier,
-    currentAuthorizer: ConfigEntity.Authorizer,
-    changeAuthorizer: (ConfigEntity.Authorizer) -> Unit,
+    currentAuthorizer: Authorizer,
+    changeAuthorizer: (Authorizer) -> Unit,
     trailingContent: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -92,19 +96,19 @@ fun MiuixDataAuthorizerWidget(
         buildMap {
             if (isSessionInstallSupported)
                 put(
-                    ConfigEntity.Authorizer.None,
+                    Authorizer.None,
                     AuthorizerInfo(R.string.config_authorizer_none, AppIcons.None)
                 )
             put(
-                ConfigEntity.Authorizer.Root,
+                Authorizer.Root,
                 AuthorizerInfo(R.string.config_authorizer_root, AppIcons.Root)
             )
             put(
-                ConfigEntity.Authorizer.Shizuku,
+                Authorizer.Shizuku,
                 AuthorizerInfo(R.string.config_authorizer_shizuku, shizukuIcon)
             )
             put(
-                ConfigEntity.Authorizer.Dhizuku,
+                Authorizer.Dhizuku,
                 AuthorizerInfo(R.string.config_authorizer_dhizuku, AppIcons.InstallAllowRestrictedPermissions)
             )
         }
@@ -149,34 +153,31 @@ data class InstallModeInfo(
     val icon: ImageVector
 )
 
-/**
- * @author wxxsfxyzm
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MiuixDataInstallModeWidget(
     modifier: Modifier = Modifier,
-    currentInstallMode: ConfigEntity.InstallMode,
-    changeInstallMode: (ConfigEntity.InstallMode) -> Unit,
+    currentInstallMode: InstallMode,
+    changeInstallMode: (InstallMode) -> Unit,
     trailingContent: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
 
     val installModeOptions = remember {
         mapOf(
-            ConfigEntity.InstallMode.Dialog to InstallModeInfo(
+            InstallMode.Dialog to InstallModeInfo(
                 R.string.config_install_mode_dialog,
                 AppIcons.Dialog
             ),
-            ConfigEntity.InstallMode.AutoDialog to InstallModeInfo(
+            InstallMode.AutoDialog to InstallModeInfo(
                 R.string.config_install_mode_auto_dialog,
                 AppIcons.AutoDialog
             ),
-            ConfigEntity.InstallMode.Notification to InstallModeInfo(
+            InstallMode.Notification to InstallModeInfo(
                 R.string.config_install_mode_notification,
                 AppIcons.Notification
             ),
-            ConfigEntity.InstallMode.AutoNotification to InstallModeInfo(
+            InstallMode.AutoNotification to InstallModeInfo(
                 R.string.config_install_mode_auto_notification,
                 AppIcons.AutoNotification
             )
@@ -613,6 +614,94 @@ fun MiuixThemeModeWidget(
 }
 
 /**
+ * SuperSpinner widget for selecting the Palette Style.
+ */
+@Composable
+fun MiuixPaletteStyleWidget(
+    modifier: Modifier = Modifier,
+    currentPaletteStyle: PaletteStyle,
+    onPaletteStyleChange: (PaletteStyle) -> Unit
+) {
+    val options = remember { PaletteStyle.entries }
+    val spinnerEntries = remember(options) {
+        options.map { SpinnerEntry(title = it.displayName) }
+    }
+    val selectedIndex = remember(currentPaletteStyle, options) {
+        options.indexOf(currentPaletteStyle).coerceAtLeast(0)
+    }
+
+    SuperSpinner(
+        modifier = modifier,
+        title = stringResource(id = R.string.theme_settings_palette_style),
+        items = spinnerEntries,
+        selectedIndex = selectedIndex,
+        onSelectedIndexChange = { newIndex ->
+            val newStyle = options[newIndex]
+            if (currentPaletteStyle != newStyle) {
+                onPaletteStyleChange(newStyle)
+            }
+        }
+    )
+}
+
+/**
+ * SuperSpinner widget for selecting the Theme Color Spec.
+ * Includes fallback logic to gracefully handle styles that do not support SPEC_2025.
+ */
+@Composable
+fun MiuixColorSpecWidget(
+    modifier: Modifier = Modifier,
+    currentColorSpec: ThemeColorSpec,
+    currentPaletteStyle: PaletteStyle,
+    onColorSpecChange: (ThemeColorSpec) -> Unit
+) {
+    // 1. Check if the current PaletteStyle supports SPEC_2025
+    val isSpec2025Supported = currentPaletteStyle in listOf(
+        PaletteStyle.TonalSpot,
+        PaletteStyle.Neutral,
+        PaletteStyle.Vibrant,
+        PaletteStyle.Expressive
+    )
+
+    // 2. Filter available specs based on support
+    val availableSpecs = if (isSpec2025Supported) {
+        ThemeColorSpec.entries
+    } else {
+        listOf(ThemeColorSpec.SPEC_2021)
+    }
+
+    // 3. Determine the actual spec being applied to match the fallback logic
+    val activeSpec = if (!isSpec2025Supported) ThemeColorSpec.SPEC_2021 else currentColorSpec
+
+    // 4. Use a static localized string for the unsupported state
+    val descriptionText = if (!isSpec2025Supported) {
+        stringResource(id = R.string.theme_settings_color_spec_only_2021)
+    } else null
+
+    val spinnerEntries = remember(availableSpecs) {
+        availableSpecs.map { SpinnerEntry(title = it.displayName) }
+    }
+
+    val selectedIndex = remember(activeSpec, availableSpecs) {
+        availableSpecs.indexOf(activeSpec).coerceAtLeast(0)
+    }
+
+    SuperSpinner(
+        modifier = modifier,
+        title = stringResource(id = R.string.theme_settings_color_spec),
+        summary = descriptionText,
+        items = spinnerEntries,
+        selectedIndex = selectedIndex,
+        onSelectedIndexChange = { newIndex ->
+            val selectedSpec = availableSpecs[newIndex]
+            if (currentColorSpec != selectedSpec) {
+                onColorSpecChange(selectedSpec)
+            }
+        }
+    )
+}
+
+/**
  * A Miuix-style dialog for adding a new NamedPackage.
  *
  * @param onDismiss Callback invoked when the dialog is dismissed.
@@ -628,8 +717,8 @@ private fun MiuixAddPackageDialog(
     val isConfirmEnabled = name.isNotBlank() && packageName.isNotBlank()
     val showState = remember { mutableStateOf(true) }
 
-    SuperDialog(
-        show = showState,
+    WindowDialog(
+        show = showState.value,
         onDismissRequest = onDismiss,
         title = stringResource(R.string.config_add_new_package),
         content = {
@@ -689,8 +778,8 @@ private fun MiuixDeleteNamedPackageConfirmationDialog(
 ) {
     val showState = remember { mutableStateOf(true) }
 
-    SuperDialog(
-        show = showState,
+    WindowDialog(
+        show = showState.value,
         onDismissRequest = onDismiss,
         title = stringResource(R.string.config_confirm_deletion),
         content = {
@@ -847,8 +936,8 @@ private fun MiuixAddUidDialog(
     // Confirm button is enabled if both name and value are not blank and value is a valid integer.
     val isConfirmEnabled = uidName.isNotBlank() && uidValueString.toIntOrNull() != null
 
-    SuperDialog(
-        show = showState,
+    WindowDialog(
+        show = showState.value,
         onDismissRequest = onDismiss,
         title = stringResource(R.string.config_add_new_shared_uid),
         content = {
@@ -912,82 +1001,79 @@ private fun MiuixDeleteSharedUidConfirmationDialog(
 ) {
     val showState = remember { mutableStateOf(true) }
 
-    SuperDialog(
-        show = showState,
-        onDismissRequest = onDismiss,
+    WindowDialog(
+        show = showState.value,
         title = stringResource(R.string.config_confirm_deletion),
-        content = {
-            Column {
-                Text(stringResource(R.string.config_confirm_deletion_desc, item.uidName))
-                Spacer(modifier = Modifier.height(24.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                ) {
-                    TextButton(
-                        modifier = Modifier.weight(1f),
-                        text = stringResource(R.string.cancel),
-                        onClick = onDismiss
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    TextButton(
-                        modifier = Modifier.weight(1f),
-                        text = stringResource(R.string.delete),
-                        colors = ButtonDefaults.textButtonColors(
-                            textColor = MaterialTheme.colorScheme.error
-                        ),
-                        onClick = onConfirm
-                    )
-                }
+    ) {
+        Column {
+            Text(stringResource(R.string.config_confirm_deletion_desc, item.uidName))
+            Spacer(modifier = Modifier.height(24.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+            ) {
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    text = stringResource(R.string.cancel),
+                    onClick = onDismiss
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    text = stringResource(R.string.delete),
+                    colors = ButtonDefaults.textButtonColors(
+                        textColor = MaterialTheme.colorScheme.error
+                    ),
+                    onClick = onConfirm
+                )
             }
         }
-    )
+    }
 }
 
 @Composable
-fun MiuixUninstallKeepDataWidget(viewModel: PreferredViewModel) {
+fun MiuixUninstallKeepDataWidget(viewModel: UninstallerSettingsViewModel) {
+    val uiState by viewModel.state.collectAsStateWithLifecycle()
     MiuixSwitchWidget(
         title = stringResource(id = R.string.uninstall_keep_data),
         description = stringResource(id = R.string.uninstall_keep_data_desc),
-        checked = viewModel.state.uninstallFlags.hasFlag(PackageManagerUtil.DELETE_KEEP_DATA),
+        checked = uiState.uninstallFlags.hasFlag(PackageManagerUtil.DELETE_KEEP_DATA),
         onCheckedChange = {
-            viewModel.dispatch(PreferredViewAction.ToggleGlobalUninstallFlag(PackageManagerUtil.DELETE_KEEP_DATA, it))
+            viewModel.dispatch(UninstallerSettingsAction.ToggleGlobalUninstallFlag(PackageManagerUtil.DELETE_KEEP_DATA, it))
         }
     )
 }
 
 @Composable
-fun MiuixUninstallForAllUsersWidget(viewModel: PreferredViewModel) {
+fun MiuixUninstallForAllUsersWidget(viewModel: UninstallerSettingsViewModel) {
+    val uiState by viewModel.state.collectAsStateWithLifecycle()
     MiuixSwitchWidget(
         icon = AppIcons.InstallForAllUsers,
         title = stringResource(id = R.string.uninstall_all_users),
         description = stringResource(id = R.string.uninstall_all_users_desc),
-        checked = viewModel.state.uninstallFlags.hasFlag(PackageManagerUtil.DELETE_ALL_USERS),
+        checked = uiState.uninstallFlags.hasFlag(PackageManagerUtil.DELETE_ALL_USERS),
         onCheckedChange = {
-            viewModel.dispatch(PreferredViewAction.ToggleGlobalUninstallFlag(PackageManagerUtil.DELETE_ALL_USERS, it))
+            viewModel.dispatch(UninstallerSettingsAction.ToggleGlobalUninstallFlag(PackageManagerUtil.DELETE_ALL_USERS, it))
         }
     )
 }
 
 @Composable
-fun MiuixUninstallSystemAppWidget(viewModel: PreferredViewModel) {
+fun MiuixUninstallSystemAppWidget(viewModel: UninstallerSettingsViewModel) {
+    val uiState by viewModel.state.collectAsStateWithLifecycle()
     MiuixSwitchWidget(
         title = stringResource(id = R.string.uninstall_delete_system_app),
         description = stringResource(id = R.string.uninstall_delete_system_app_desc),
-        checked = viewModel.state.uninstallFlags.hasFlag(PackageManagerUtil.DELETE_SYSTEM_APP),
+        checked = uiState.uninstallFlags.hasFlag(PackageManagerUtil.DELETE_SYSTEM_APP),
         onCheckedChange = {
-            viewModel.dispatch(
-                PreferredViewAction.ToggleGlobalUninstallFlag(
-                    PackageManagerUtil.DELETE_SYSTEM_APP,
-                    it
-                )
-            )
+            viewModel.dispatch(UninstallerSettingsAction.ToggleGlobalUninstallFlag(PackageManagerUtil.DELETE_SYSTEM_APP, it))
         }
     )
 }
 
 @Composable
-fun MiuixUninstallRequireBiometricAuthWidget(viewModel: PreferredViewModel) {
+fun MiuixUninstallRequireBiometricAuthWidget(viewModel: UninstallerSettingsViewModel) {
+    val uiState by viewModel.state.collectAsStateWithLifecycle()
     if (BiometricManager
             .from(LocalContext.current)
             .canAuthenticate(BIOMETRIC_WEAK or BIOMETRIC_STRONG or DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS
@@ -996,9 +1082,9 @@ fun MiuixUninstallRequireBiometricAuthWidget(viewModel: PreferredViewModel) {
             icon = AppIcons.BiometricAuth,
             title = stringResource(R.string.uninstaller_settings_require_biometric_auth),
             description = stringResource(R.string.uninstaller_settings_require_biometric_auth_desc),
-            checked = viewModel.state.uninstallerRequireBiometricAuth,
+            checked = uiState.uninstallerRequireBiometricAuth,
             onCheckedChange = {
-                viewModel.dispatch(PreferredViewAction.ChangeBiometricAuth(it, false))
+                viewModel.dispatch(UninstallerSettingsAction.ChangeBiometricAuth(it))
             }
         )
     }

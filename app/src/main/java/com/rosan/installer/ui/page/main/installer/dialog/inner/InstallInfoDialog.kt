@@ -53,13 +53,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
 import com.rosan.installer.R
-import com.rosan.installer.build.RsConfig
-import com.rosan.installer.build.model.entity.Manufacturer
-import com.rosan.installer.data.app.model.entity.AppEntity
-import com.rosan.installer.data.app.model.entity.InstalledAppInfo
-import com.rosan.installer.data.app.model.enums.DataType
-import com.rosan.installer.data.app.util.sortedBest
-import com.rosan.installer.data.installer.repo.InstallerRepo
+import com.rosan.installer.core.env.DeviceConfig
+import com.rosan.installer.domain.device.model.Manufacturer
+import com.rosan.installer.domain.engine.model.AppEntity
+import com.rosan.installer.domain.engine.model.DataType
+import com.rosan.installer.domain.engine.model.InstalledAppInfo
+import com.rosan.installer.domain.engine.model.sortedBest
+import com.rosan.installer.domain.session.repository.InstallerSessionRepository
 import com.rosan.installer.ui.icons.AppIcons
 import com.rosan.installer.ui.page.main.installer.InstallerViewModel
 import com.rosan.installer.ui.page.main.installer.InstallerViewState
@@ -77,7 +77,7 @@ import kotlin.math.abs
  */
 @Composable
 fun installInfoDialog(
-    installer: InstallerRepo,
+    installer: InstallerSessionRepository,
     viewModel: InstallerViewModel,
     onTitleExtraClick: () -> Unit = {}
 ): DialogParams {
@@ -401,7 +401,7 @@ fun installInfoDialog(
                     }
                 }
                 // --- OPPO Info Display ---
-                if (RsConfig.currentManufacturer == Manufacturer.OPPO || RsConfig.currentManufacturer == Manufacturer.ONEPLUS)
+                if (DeviceConfig.currentManufacturer == Manufacturer.OPPO || DeviceConfig.currentManufacturer == Manufacturer.ONEPLUS)
                     AnimatedVisibility(settings.showOPPOSpecial && entityToInstall.sourceType == DataType.APK) {
                         Column {
                             Spacer(modifier = Modifier.height(8.dp))
@@ -429,50 +429,73 @@ private fun VersionCompareMultiLine(
     preInstallAppInfo: InstalledAppInfo,
     entityToInstall: AppEntity.BaseEntity
 ) {
+    // 1. Determine the installation status (downgrade or upgrade/equal)
+    val isDowngrade = preInstallAppInfo.versionCode > entityToInstall.versionCode
+
+    // 2. Centralize the color logic based on the status
+    val statusColor = if (isDowngrade) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
+    // 3. Resolve the raw old version text
+    val oldVersionText = when {
+        preInstallAppInfo.isArchived -> stringResource(R.string.old_version_archived)
+        preInstallAppInfo.isUninstalled -> stringResource(R.string.old_version_uninstalled)
+        else -> preInstallAppInfo.versionName
+    }
+
+    // 4. Resolve the formatted version strings (e.g., "Ver. 1.0.0 (100)")
+    val oldVersionFormatted = stringResource(
+        R.string.installer_version_short,
+        oldVersionText,
+        preInstallAppInfo.versionCode
+    )
+    val newVersionFormatted = stringResource(
+        R.string.installer_version_short,
+        entityToInstall.versionName,
+        entityToInstall.versionCode
+    )
+
+    // 5. Resolve the prefixes
+    val oldPrefix = stringResource(R.string.old_version_prefix)
+    val newPrefix = if (isDowngrade) {
+        stringResource(R.string.downgrade_version_prefix)
+    } else {
+        stringResource(R.string.upgrade_version_prefix)
+    }
+
+    // 6. Build the UI
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        val oldVersionText = when {
-            preInstallAppInfo.isArchived -> stringResource(R.string.old_version_archived)
-            preInstallAppInfo.isUninstalled -> stringResource(R.string.old_version_uninstalled)
-            else -> preInstallAppInfo.versionName
-        }
-
-        Text( // Old version with prefix
-            text = stringResource(R.string.old_version_prefix) +
-                    stringResource(
-                        R.string.installer_version_short,
-                        oldVersionText,
-                        preInstallAppInfo.versionCode
-                    ),
+        Text(
+            // Old version with prefix
+            text = stringResource(
+                R.string.version_with_prefix_format,
+                oldPrefix,
+                oldVersionFormatted
+            ),
             textAlign = TextAlign.Center,
             modifier = Modifier.basicMarquee()
         )
+
         Icon(
             imageVector = AppIcons.ArrowDropDownFilled,
             contentDescription = "to",
-            tint =
-                if (preInstallAppInfo.versionCode > entityToInstall.versionCode)
-                    MaterialTheme.colorScheme.error
-                else
-                    MaterialTheme.colorScheme.primary,
+            tint = statusColor,
             modifier = Modifier.size(24.dp)
         )
-        Text( // New version with prefix
-            text = if (entityToInstall.versionCode >= preInstallAppInfo.versionCode)
-                stringResource(R.string.upgrade_version_prefix) + stringResource(
-                    R.string.installer_version_short,
-                    entityToInstall.versionName,
-                    entityToInstall.versionCode
-                ) else stringResource(R.string.downgrade_version_prefix) + stringResource(
-                R.string.installer_version_short,
-                entityToInstall.versionName,
-                entityToInstall.versionCode
+
+        Text(
+            // New version with prefix
+            text = stringResource(
+                R.string.version_with_prefix_format,
+                newPrefix,
+                newVersionFormatted
             ),
-            color = if (preInstallAppInfo.versionCode > entityToInstall.versionCode)
-                MaterialTheme.colorScheme.error
-            else
-                MaterialTheme.colorScheme.primary,
+            color = statusColor,
             textAlign = TextAlign.Center,
             modifier = Modifier.basicMarquee()
         )

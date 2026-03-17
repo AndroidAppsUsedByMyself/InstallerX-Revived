@@ -55,7 +55,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -76,6 +75,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.rosan.installer.R
 import com.rosan.installer.ui.common.ViewContent
@@ -99,8 +99,7 @@ fun ApplyPage(
         parametersOf(id)
     }
 ) {
-    LaunchedEffect(Unit) { viewModel.dispatch(ApplyViewAction.Init) }
-
+    val uiState by viewModel.state.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -127,7 +126,7 @@ fun ApplyPage(
                             val focusRequester = remember { FocusRequester() }
                             OutlinedTextField(
                                 modifier = Modifier.focusRequester(focusRequester),
-                                value = viewModel.state.search,
+                                value = uiState.search,
                                 onValueChange = { viewModel.dispatch(ApplyViewAction.Search(it)) },
                                 singleLine = true,
                                 leadingIcon = {
@@ -200,7 +199,7 @@ fun ApplyPage(
         }) {
         Box(modifier = Modifier.padding(it)) {
             when {
-                viewModel.state.apps.progress is ViewContent.Progress.Loading && viewModel.state.apps.data.isEmpty() -> {
+                uiState.apps.progress is ViewContent.Progress.Loading && uiState.apps.data.isEmpty() -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -219,7 +218,7 @@ fun ApplyPage(
                 }
 
                 else -> {
-                    val refreshing = viewModel.state.apps.progress is ViewContent.Progress.Loading
+                    val refreshing = uiState.apps.progress is ViewContent.Progress.Loading
                     val pullToRefreshState = rememberPullToRefreshState()
                     // 使用 PullToRefreshBox 作为根容器
                     PullToRefreshBox(
@@ -239,6 +238,7 @@ fun ApplyPage(
                     ) {
                         ItemsWidget(
                             modifier = Modifier.fillMaxSize(),
+                            uiState = uiState,
                             viewModel = viewModel,
                             lazyListState = lazyListState
                         )
@@ -249,21 +249,22 @@ fun ApplyPage(
     }
 
     if (showBottomSheet) ModalBottomSheet(onDismissRequest = { showBottomSheet = false }) {
-        BottomSheetContent(viewModel)
+        BottomSheetContent(uiState = uiState, viewModel = viewModel)
     }
 }
 
 @Composable
 private fun ItemsWidget(
     modifier: Modifier,
+    uiState: ApplyViewState,
     viewModel: ApplyViewModel,
     lazyListState: LazyListState,
 ) {
     // Optimize lookup performance by converting the list to a Set.
     // Use derivedStateOf to ensure it only recalculates when the data actually changes.
-    val appliedPackageSet by remember(viewModel.state.appEntities.data) {
+    val appliedPackageSet by remember(uiState.appEntities.data) {
         derivedStateOf {
-            viewModel.state.appEntities.data.map { it.packageName }.toHashSet()
+            uiState.appEntities.data.map { it.packageName }.toHashSet()
         }
     }
 
@@ -274,7 +275,7 @@ private fun ItemsWidget(
         contentPadding = PaddingValues(8.dp)
     ) {
         items(
-            items = viewModel.state.checkedApps,
+            items = uiState.checkedApps,
             key = { it.packageName },
             contentType = { "app_item" } // Help Compose recycle items more efficiently
         ) { app ->
@@ -291,7 +292,7 @@ private fun ItemsWidget(
                 app = app,
                 isApplied = isApplied,
                 isM3e = false,
-                showPackageName = viewModel.state.showPackageName,
+                showPackageName = uiState.showPackageName,
                 onToggle = { isChecked ->
                     viewModel.dispatch(ApplyViewAction.ApplyPackageName(app.packageName, isChecked))
                 },
@@ -304,7 +305,7 @@ private fun ItemsWidget(
 }
 
 @Composable
-private fun BottomSheetContent(viewModel: ApplyViewModel) {
+private fun BottomSheetContent(uiState: ApplyViewState, viewModel: ApplyViewModel) {
     Box(modifier = Modifier.fillMaxWidth()) {
         CompositionLocalProvider(LocalContentColor provides AlertDialogDefaults.titleContentColor) {
             ProvideTextStyle(MaterialTheme.typography.headlineSmall) {
@@ -320,14 +321,17 @@ private fun BottomSheetContent(viewModel: ApplyViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        OrderWidget(viewModel)
-        ChipsWidget(viewModel)
+        OrderWidget(uiState = uiState, viewModel = viewModel)
+        ChipsWidget(uiState = uiState, viewModel = viewModel)
     }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun OrderWidget(viewModel: ApplyViewModel) {
+private fun OrderWidget(
+    uiState: ApplyViewState,
+    viewModel: ApplyViewModel
+) {
     val haptic = LocalHapticFeedback.current
 
     LabelWidget(stringResource(R.string.sort), 0.dp)
@@ -340,7 +344,7 @@ private fun OrderWidget(viewModel: ApplyViewModel) {
         OrderData(R.string.sort_by_install_time, ApplyViewState.OrderType.FirstInstallTime)
     )
 
-    val selectedIndex = map.map { it.type }.indexOf(viewModel.state.orderType)
+    val selectedIndex = map.map { it.type }.indexOf(uiState.orderType)
 
     Row(
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
@@ -376,15 +380,18 @@ private fun OrderWidget(viewModel: ApplyViewModel) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChipsWidget(viewModel: ApplyViewModel) {
+private fun ChipsWidget(
+    uiState: ApplyViewState,
+    viewModel: ApplyViewModel
+) {
     LabelWidget(stringResource(R.string.more), 0.dp)
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        val orderInReverse = viewModel.state.orderInReverse
-        val selectedFirst = viewModel.state.selectedFirst
-        val showSystemApp = viewModel.state.showSystemApp
-        val showPackageName = viewModel.state.showPackageName
+        val orderInReverse = uiState.orderInReverse
+        val selectedFirst = uiState.selectedFirst
+        val showSystemApp = uiState.showSystemApp
+        val showPackageName = uiState.showPackageName
         Chip(
             selected = orderInReverse,
             label = stringResource(R.string.sort_by_reverse_order),

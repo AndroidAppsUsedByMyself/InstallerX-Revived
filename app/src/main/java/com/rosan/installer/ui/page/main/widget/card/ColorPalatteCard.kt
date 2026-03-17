@@ -25,9 +25,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.rosan.installer.ui.theme.m3color.PaletteStyle
-import com.rosan.installer.ui.theme.m3color.RawColor
-import com.rosan.installer.ui.theme.m3color.dynamicColorScheme
+import com.rosan.installer.ui.theme.material.PaletteStyle
+import com.rosan.installer.ui.theme.material.RawColor
+import com.rosan.installer.ui.theme.material.dynamicColorScheme
 import com.rosan.installer.ui.util.getDisplayName
 
 @Composable
@@ -112,13 +112,16 @@ fun ColorSwatchPreview(
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = rawColor.getDisplayName(),
-            style = textStyle,
-            color = textColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+
+        if (rawColor.getDisplayName() !== rawColor.key) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = rawColor.getDisplayName(),
+                style = textStyle,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
